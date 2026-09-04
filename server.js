@@ -1,6 +1,7 @@
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
+const html_to_pdf = require('html-pdf-node');
 
 const app = express();
 app.use(cors());
@@ -30,23 +31,20 @@ app.get('/api/inventario', async (req, res) => {
         let listaFinal = prendasRes.recordset.map(prenda => {
             let tallasDePrenda = {};
             let preciosTallasMap = {};
-            let costosTallasMap = {}; // NUEVO MAPA PARA COSTOS
+            let costosTallasMap = {}; 
             
-            // Verificamos si la prenda tiene las opciones activadas en la BD
             let personalizarPrecio = prenda.PersonalizarPrecioPorTalla === true || prenda.PersonalizarPrecioPorTalla === 1;
-            let personalizarCosto = prenda.PersonalizarCostoPorTalla === true || prenda.PersonalizarCostoPorTalla === 1; // NUEVO
+            let personalizarCosto = prenda.PersonalizarCostoPorTalla === true || prenda.PersonalizarCostoPorTalla === 1; 
 
             tallasRes.recordset
                 .filter(t => t.PrendaId === prenda.Id)
                 .forEach(t => {
                     tallasDePrenda[t.Talla] = t.Cantidad;
                     
-                    // Si tiene precios personalizados, los agregamos al mapa
                     if (personalizarPrecio && t.PrecioVenta !== null) {
                         preciosTallasMap[t.Talla] = t.PrecioVenta.toString();
                     }
                     
-                    // Si tiene costos personalizados, los agregamos al mapa
                     if (personalizarCosto && t.CostoCompra !== null) {
                         costosTallasMap[t.Talla] = t.CostoCompra.toString();
                     }
@@ -59,7 +57,7 @@ app.get('/api/inventario', async (req, res) => {
                 precio: prenda.Precio.toString(),
                 tallas: tallasDePrenda,
                 preciosTallas: Object.keys(preciosTallasMap).length > 0 ? preciosTallasMap : null,
-                costosTallas: Object.keys(costosTallasMap).length > 0 ? costosTallasMap : null, // NUEVO
+                costosTallas: Object.keys(costosTallasMap).length > 0 ? costosTallasMap : null, 
                 categoria: prenda.CategoriaId === 1 ? "Vestidos" : "General",
                 fotoUri: prenda.FotoUri,
                 colores: prenda.Colores || "",
@@ -82,9 +80,8 @@ app.post('/api/inventario', async (req, res) => {
         let prenda = req.body; 
         let pool = await sql.connect(dbConfig);
 
-        // Detectar si Android mandó precios o costos personalizados
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
-        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; // NUEVO
+        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; 
 
         await pool.request()
             .input('Id', sql.VarChar, prenda.id)
@@ -94,7 +91,7 @@ app.post('/api/inventario', async (req, res) => {
             .input('CategoriaId', sql.Int, 1) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
             .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
-            .input('PersonalizarCosto', sql.Bit, personalizarCosto) // NUEVO
+            .input('PersonalizarCosto', sql.Bit, personalizarCosto) 
             .query(`
                 INSERT INTO Prendas (Id, Nombre, Costo, Precio, CategoriaId, MostrarEnCatalogo, PersonalizarPrecioPorTalla, PersonalizarCostoPorTalla)
                 VALUES (@Id, @Nombre, @Costo, @Precio, @CategoriaId, @Mostrar, @PersonalizarPrecio, @PersonalizarCosto)
@@ -102,9 +99,8 @@ app.post('/api/inventario', async (req, res) => {
 
         for (const talla in prenda.tallas) {
             let precioVenta = null;
-            let costoCompra = null; // NUEVO
+            let costoCompra = null; 
 
-            // Extraer y validar el precio individual si existe
             if (personalizarPrecio === 1 && prenda.preciosTallas[talla]) {
                 precioVenta = parseFloat(prenda.preciosTallas[talla]);
                 if (precioVenta <= 0) {
@@ -112,7 +108,6 @@ app.post('/api/inventario', async (req, res) => {
                 }
             }
 
-            // Extraer y validar el costo individual si existe
             if (personalizarCosto === 1 && prenda.costosTallas[talla]) {
                 costoCompra = parseFloat(prenda.costosTallas[talla]);
                 if (costoCompra <= 0) {
@@ -125,7 +120,7 @@ app.post('/api/inventario', async (req, res) => {
                 .input('Talla', sql.VarChar, talla)
                 .input('Cantidad', sql.Int, prenda.tallas[talla])
                 .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) 
-                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) // NUEVO
+                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) 
                 .query(`
                     INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta, CostoCompra)
                     VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta, @CostoCompra)
@@ -147,7 +142,6 @@ app.post('/api/ventas', async (req, res) => {
         let { ventaId, prendaId, usuarioId, talla, cantidad } = req.body; 
         let pool = await sql.connect(dbConfig);
 
-        // SQL Server (sp_RegistrarVenta) se encarga de revisar el precio y costo de la talla automáticamente
         let result = await pool.request()
             .input('VentaId', sql.VarChar, ventaId)
             .input('PrendaId', sql.VarChar, prendaId)
@@ -175,9 +169,8 @@ app.put('/api/inventario/:id', async (req, res) => {
         
         let pool = await sql.connect(dbConfig);
 
-        // Detectar si Android mandó precios o costos personalizados
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
-        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; // NUEVO
+        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; 
 
         await pool.request()
             .input('Id', sql.VarChar, id)
@@ -187,7 +180,7 @@ app.put('/api/inventario/:id', async (req, res) => {
             .input('CategoriaId', sql.Int, 1) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
             .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
-            .input('PersonalizarCosto', sql.Bit, personalizarCosto) // NUEVO
+            .input('PersonalizarCosto', sql.Bit, personalizarCosto) 
             .query(`
                 UPDATE Prendas 
                 SET Nombre = @Nombre, Costo = @Costo, Precio = @Precio, MostrarEnCatalogo = @Mostrar, 
@@ -201,9 +194,8 @@ app.put('/api/inventario/:id', async (req, res) => {
 
         for (const talla in prenda.tallas) {
             let precioVenta = null;
-            let costoCompra = null; // NUEVO
+            let costoCompra = null; 
 
-            // Extraer y validar el precio individual si existe
             if (personalizarPrecio === 1 && prenda.preciosTallas[talla]) {
                 precioVenta = parseFloat(prenda.preciosTallas[talla]);
                 if (precioVenta <= 0) {
@@ -211,7 +203,6 @@ app.put('/api/inventario/:id', async (req, res) => {
                 }
             }
 
-            // Extraer y validar el costo individual si existe
             if (personalizarCosto === 1 && prenda.costosTallas[talla]) {
                 costoCompra = parseFloat(prenda.costosTallas[talla]);
                 if (costoCompra <= 0) {
@@ -224,7 +215,7 @@ app.put('/api/inventario/:id', async (req, res) => {
                 .input('Talla', sql.VarChar, talla)
                 .input('Cantidad', sql.Int, prenda.tallas[talla])
                 .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) 
-                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) // NUEVO
+                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) 
                 .query(`
                     INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta, CostoCompra)
                     VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta, @CostoCompra)
@@ -380,6 +371,138 @@ app.put('/api/ventas/:id/anular', async (req, res) => {
     } catch (err) {
         console.error("❌ Error al anular venta: ", err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================================
+// RUTA EXPORTAR INVENTARIO A PDF (GET)
+// ==========================================================
+app.get('/api/inventario/exportar', async (req, res) => {
+    try {
+        console.log("📄 Generando reporte PDF de inventario...");
+        let pool = await sql.connect(dbConfig);
+        
+        let prendasRes = await pool.request().query('SELECT * FROM Prendas ORDER BY Nombre ASC');
+        let tallasRes = await pool.request().query('SELECT * FROM Prenda_Tallas');
+
+        let totalInvertido = 0;
+        let totalVenta = 0;
+
+        // --- 1. CONSTRUIR LAS FILAS DE LA TABLA EN HTML ---
+        let filasHTML = '';
+
+        prendasRes.recordset.forEach(prenda => {
+            let tallasPrenda = tallasRes.recordset.filter(t => t.PrendaId === prenda.Id && t.Cantidad > 0);
+            
+            if (tallasPrenda.length > 0) {
+                let personalizarCosto = prenda.PersonalizarCostoPorTalla === true || prenda.PersonalizarCostoPorTalla === 1;
+                let personalizarPrecio = prenda.PersonalizarPrecioPorTalla === true || prenda.PersonalizarPrecioPorTalla === 1;
+
+                tallasPrenda.forEach(t => {
+                    let costoReal = personalizarCosto && t.CostoCompra !== null ? t.CostoCompra : prenda.Costo;
+                    let precioReal = personalizarPrecio && t.PrecioVenta !== null ? t.PrecioVenta : prenda.Precio;
+                    
+                    let invertidoFila = costoReal * t.Cantidad;
+                    let ventaFila = precioReal * t.Cantidad;
+
+                    totalInvertido += invertidoFila;
+                    totalVenta += ventaFila;
+
+                    filasHTML += `
+                        <tr>
+                            <td><strong>${prenda.Nombre}</strong><br><span style="font-size: 10px; color: #666;">${prenda.CategoriaId === 1 ? 'Vestidos' : 'General'}</span></td>
+                            <td style="text-align: center;">${t.Talla}</td>
+                            <td style="text-align: center;">${t.Cantidad}</td>
+                            <td style="text-align: right;">C$ ${costoReal.toFixed(2)}</td>
+                            <td style="text-align: right;">C$ ${precioReal.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+            }
+        });
+
+        // --- 2. DISEÑO HTML Y CSS DEL DOCUMENTO ---
+        let htmlContent = `
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 20px; }
+                .header { text-align: center; border-bottom: 3px solid #E91E63; padding-bottom: 15px; margin-bottom: 20px; }
+                h1 { color: #E91E63; margin: 0; font-size: 28px; letter-spacing: 1px; }
+                .subtitle { color: #666; font-size: 14px; margin-top: 5px; }
+                
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+                th { background-color: #E91E63; color: white; padding: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+                td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+                tr:nth-child(even) { background-color: #fafafa; }
+                
+                .resumen-box { background-color: #fce4ec; border-radius: 8px; padding: 15px; margin-top: 30px; }
+                .resumen-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+                .resumen-total { font-weight: bold; color: #E91E63; font-size: 18px; border-top: 1px solid #f8bbd0; padding-top: 8px; margin-top: 8px; }
+                
+                .footer { text-align: center; font-size: 10px; color: #999; margin-top: 40px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>JessBoutique</h1>
+                <div class="subtitle">Reporte Oficial de Inventario y Valoración</div>
+                <div class="subtitle" style="font-size: 12px;">Generado el: ${new Date().toLocaleDateString('es-ES')}</div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="text-align: left;">Producto</th>
+                        <th style="text-align: center;">Talla</th>
+                        <th style="text-align: center;">Stock</th>
+                        <th style="text-align: right;">Costo Und.</th>
+                        <th style="text-align: right;">Precio Und.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filasHTML}
+                </tbody>
+            </table>
+
+            <div class="resumen-box">
+                <div class="resumen-row">
+                    <span>Capital Invertido Total:</span>
+                    <span>C$ ${totalInvertido.toFixed(2)}</span>
+                </div>
+                <div class="resumen-row">
+                    <span>Valor de Venta Total:</span>
+                    <span>C$ ${totalVenta.toFixed(2)}</span>
+                </div>
+                <div class="resumen-row resumen-total">
+                    <span>Ganancia Potencial Proyectada:</span>
+                    <span>C$ ${(totalVenta - totalInvertido).toFixed(2)}</span>
+                </div>
+            </div>
+
+            <div class="footer">
+                Documento generado automáticamente por el sistema administrativo de JessBoutique.
+            </div>
+        </body>
+        </html>
+        `;
+
+        // --- 3. CONVERTIR A PDF Y ENVIAR ---
+        let options = { format: 'A4', margin: { top: "20px", bottom: "20px", left: "20px", right: "20px" } };
+        let file = { content: htmlContent };
+
+        html_to_pdf.generatePdf(file, options).then(pdfBuffer => {
+            res.contentType("application/pdf");
+            res.setHeader('Content-Disposition', 'attachment; filename="Inventario_JessBoutique.pdf"');
+            res.send(pdfBuffer);
+            console.log("✅ PDF generado y enviado con éxito");
+        });
+
+    } catch (err) {
+        console.error("❌ Error al generar PDF: ", err);
+        res.status(500).send("Error interno al generar el documento");
     }
 });
 
