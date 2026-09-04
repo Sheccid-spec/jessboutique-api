@@ -30,9 +30,11 @@ app.get('/api/inventario', async (req, res) => {
         let listaFinal = prendasRes.recordset.map(prenda => {
             let tallasDePrenda = {};
             let preciosTallasMap = {};
+            let costosTallasMap = {}; // NUEVO MAPA PARA COSTOS
             
-            // Verificamos si la prenda tiene la opción activada en la BD
-            let personalizar = prenda.PersonalizarPrecioPorTalla === true || prenda.PersonalizarPrecioPorTalla === 1;
+            // Verificamos si la prenda tiene las opciones activadas en la BD
+            let personalizarPrecio = prenda.PersonalizarPrecioPorTalla === true || prenda.PersonalizarPrecioPorTalla === 1;
+            let personalizarCosto = prenda.PersonalizarCostoPorTalla === true || prenda.PersonalizarCostoPorTalla === 1; // NUEVO
 
             tallasRes.recordset
                 .filter(t => t.PrendaId === prenda.Id)
@@ -40,8 +42,13 @@ app.get('/api/inventario', async (req, res) => {
                     tallasDePrenda[t.Talla] = t.Cantidad;
                     
                     // Si tiene precios personalizados, los agregamos al mapa
-                    if (personalizar && t.PrecioVenta !== null) {
+                    if (personalizarPrecio && t.PrecioVenta !== null) {
                         preciosTallasMap[t.Talla] = t.PrecioVenta.toString();
+                    }
+                    
+                    // Si tiene costos personalizados, los agregamos al mapa
+                    if (personalizarCosto && t.CostoCompra !== null) {
+                        costosTallasMap[t.Talla] = t.CostoCompra.toString();
                     }
                 });
 
@@ -51,8 +58,8 @@ app.get('/api/inventario', async (req, res) => {
                 costo: prenda.Costo.toString(),
                 precio: prenda.Precio.toString(),
                 tallas: tallasDePrenda,
-                // Si el mapa de precios tiene datos, lo enviamos; si no, null
                 preciosTallas: Object.keys(preciosTallasMap).length > 0 ? preciosTallasMap : null,
+                costosTallas: Object.keys(costosTallasMap).length > 0 ? costosTallasMap : null, // NUEVO
                 categoria: prenda.CategoriaId === 1 ? "Vestidos" : "General",
                 fotoUri: prenda.FotoUri,
                 colores: prenda.Colores || "",
@@ -75,8 +82,9 @@ app.post('/api/inventario', async (req, res) => {
         let prenda = req.body; 
         let pool = await sql.connect(dbConfig);
 
-        // Detectar si Android mandó precios personalizados
+        // Detectar si Android mandó precios o costos personalizados
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
+        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; // NUEVO
 
         await pool.request()
             .input('Id', sql.VarChar, prenda.id)
@@ -85,14 +93,16 @@ app.post('/api/inventario', async (req, res) => {
             .input('Precio', sql.Decimal(10, 2), prenda.precio)
             .input('CategoriaId', sql.Int, 1) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
-            .input('Personalizar', sql.Bit, personalizarPrecio) // NUEVO CAMPO
+            .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
+            .input('PersonalizarCosto', sql.Bit, personalizarCosto) // NUEVO
             .query(`
-                INSERT INTO Prendas (Id, Nombre, Costo, Precio, CategoriaId, MostrarEnCatalogo, PersonalizarPrecioPorTalla)
-                VALUES (@Id, @Nombre, @Costo, @Precio, @CategoriaId, @Mostrar, @Personalizar)
+                INSERT INTO Prendas (Id, Nombre, Costo, Precio, CategoriaId, MostrarEnCatalogo, PersonalizarPrecioPorTalla, PersonalizarCostoPorTalla)
+                VALUES (@Id, @Nombre, @Costo, @Precio, @CategoriaId, @Mostrar, @PersonalizarPrecio, @PersonalizarCosto)
             `);
 
         for (const talla in prenda.tallas) {
             let precioVenta = null;
+            let costoCompra = null; // NUEVO
 
             // Extraer y validar el precio individual si existe
             if (personalizarPrecio === 1 && prenda.preciosTallas[talla]) {
@@ -102,14 +112,23 @@ app.post('/api/inventario', async (req, res) => {
                 }
             }
 
+            // Extraer y validar el costo individual si existe
+            if (personalizarCosto === 1 && prenda.costosTallas[talla]) {
+                costoCompra = parseFloat(prenda.costosTallas[talla]);
+                if (costoCompra <= 0) {
+                    throw new Error(`El costo para la talla ${talla} debe ser mayor a 0`);
+                }
+            }
+
             await pool.request()
                 .input('PrendaId', sql.VarChar, prenda.id)
                 .input('Talla', sql.VarChar, talla)
                 .input('Cantidad', sql.Int, prenda.tallas[talla])
-                .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) // NUEVO CAMPO
+                .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) 
+                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) // NUEVO
                 .query(`
-                    INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta)
-                    VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta)
+                    INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta, CostoCompra)
+                    VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta, @CostoCompra)
                 `);
         }
 
@@ -128,7 +147,7 @@ app.post('/api/ventas', async (req, res) => {
         let { ventaId, prendaId, usuarioId, talla, cantidad } = req.body; 
         let pool = await sql.connect(dbConfig);
 
-        // SQL Server (sp_RegistrarVenta) se encarga de revisar el precio de la talla automáticamente
+        // SQL Server (sp_RegistrarVenta) se encarga de revisar el precio y costo de la talla automáticamente
         let result = await pool.request()
             .input('VentaId', sql.VarChar, ventaId)
             .input('PrendaId', sql.VarChar, prendaId)
@@ -156,8 +175,9 @@ app.put('/api/inventario/:id', async (req, res) => {
         
         let pool = await sql.connect(dbConfig);
 
-        // Detectar si Android mandó precios personalizados
+        // Detectar si Android mandó precios o costos personalizados
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
+        let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; // NUEVO
 
         await pool.request()
             .input('Id', sql.VarChar, id)
@@ -166,10 +186,12 @@ app.put('/api/inventario/:id', async (req, res) => {
             .input('Precio', sql.Decimal(10, 2), prenda.precio)
             .input('CategoriaId', sql.Int, 1) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
-            .input('Personalizar', sql.Bit, personalizarPrecio) // NUEVO CAMPO
+            .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
+            .input('PersonalizarCosto', sql.Bit, personalizarCosto) // NUEVO
             .query(`
                 UPDATE Prendas 
-                SET Nombre = @Nombre, Costo = @Costo, Precio = @Precio, MostrarEnCatalogo = @Mostrar, PersonalizarPrecioPorTalla = @Personalizar
+                SET Nombre = @Nombre, Costo = @Costo, Precio = @Precio, MostrarEnCatalogo = @Mostrar, 
+                    PersonalizarPrecioPorTalla = @PersonalizarPrecio, PersonalizarCostoPorTalla = @PersonalizarCosto
                 WHERE Id = @Id
             `);
 
@@ -179,6 +201,7 @@ app.put('/api/inventario/:id', async (req, res) => {
 
         for (const talla in prenda.tallas) {
             let precioVenta = null;
+            let costoCompra = null; // NUEVO
 
             // Extraer y validar el precio individual si existe
             if (personalizarPrecio === 1 && prenda.preciosTallas[talla]) {
@@ -188,14 +211,23 @@ app.put('/api/inventario/:id', async (req, res) => {
                 }
             }
 
+            // Extraer y validar el costo individual si existe
+            if (personalizarCosto === 1 && prenda.costosTallas[talla]) {
+                costoCompra = parseFloat(prenda.costosTallas[talla]);
+                if (costoCompra <= 0) {
+                    throw new Error(`El costo para la talla ${talla} debe ser mayor a 0`);
+                }
+            }
+
             await pool.request()
                 .input('PrendaId', sql.VarChar, id)
                 .input('Talla', sql.VarChar, talla)
                 .input('Cantidad', sql.Int, prenda.tallas[talla])
-                .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) // NUEVO CAMPO
+                .input('PrecioVenta', sql.Decimal(10, 2), precioVenta) 
+                .input('CostoCompra', sql.Decimal(10, 2), costoCompra) // NUEVO
                 .query(`
-                    INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta)
-                    VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta)
+                    INSERT INTO Prenda_Tallas (PrendaId, Talla, Cantidad, PrecioVenta, CostoCompra)
+                    VALUES (@PrendaId, @Talla, @Cantidad, @PrecioVenta, @CostoCompra)
                 `);
         }
 
