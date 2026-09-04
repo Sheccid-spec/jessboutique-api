@@ -13,6 +13,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "html-pdf-node": "^1.0.8",
     "mssql": "^12.7.0"
   }
 }
