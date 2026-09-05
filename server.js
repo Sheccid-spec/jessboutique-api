@@ -468,7 +468,7 @@ app.get('/api/inventario/exportar', async (req, res) => {
             <div class="header">
                 <h1>JessBoutique</h1>
                 <div class="subtitle">Reporte Oficial de Inventario y Valoración</div>
-                <div class="subtitle" style="font-size: 12px;">Generado el: ${new Date().toLocaleDateString('es-ES')}</div>
+                <div class="subtitle" style="font-size: 12px;">Generado el: ${new Date().toLocaleDateString('es-NI', { timeZone: 'America/Managua' })}</div>
             </div>
 
             <table>
