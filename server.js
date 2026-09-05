@@ -19,6 +19,19 @@ const dbConfig = {
     }
 };
 
+// ==========================================================
+// DICCIONARIO TRADUCTOR DE CATEGORÍAS
+// ==========================================================
+function getCategoriaId(nombre) {
+    const mapa = { "Vestidos": 1, "Camisas Dama": 2, "Camisas Hombre": 3, "Pantalones Dama": 4, "Pantalones Hombre": 5, "Carteras": 6, "Accesorios": 7 };
+    return mapa[nombre] || 8; // 8 es General
+}
+
+function getCategoriaNombre(id) {
+    const mapa = { 1: "Vestidos", 2: "Camisas Dama", 3: "Camisas Hombre", 4: "Pantalones Dama", 5: "Pantalones Hombre", 6: "Carteras", 7: "Accesorios" };
+    return mapa[id] || "General";
+}
+
 // --- RUTA: LEER INVENTARIO (GET) ---
 app.get('/api/inventario', async (req, res) => {
     try {
@@ -58,7 +71,7 @@ app.get('/api/inventario', async (req, res) => {
                 tallas: tallasDePrenda,
                 preciosTallas: Object.keys(preciosTallasMap).length > 0 ? preciosTallasMap : null,
                 costosTallas: Object.keys(costosTallasMap).length > 0 ? costosTallasMap : null, 
-                categoria: prenda.CategoriaId === 1 ? "Vestidos" : "General",
+                categoria: getCategoriaNombre(prenda.CategoriaId), // ¡AQUÍ TRADUCIMOS EL ID A NOMBRE!
                 fotoUri: prenda.FotoUri,
                 colores: prenda.Colores || "",
                 descripcion: prenda.Descripcion || "",
@@ -82,13 +95,15 @@ app.post('/api/inventario', async (req, res) => {
 
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
         let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; 
+        
+        let catId = getCategoriaId(prenda.categoria); // TRADUCIMOS DE NOMBRE A ID
 
         await pool.request()
             .input('Id', sql.VarChar, prenda.id)
             .input('Nombre', sql.VarChar, prenda.nombre)
             .input('Costo', sql.Decimal(10, 2), prenda.costo)
             .input('Precio', sql.Decimal(10, 2), prenda.precio)
-            .input('CategoriaId', sql.Int, 1) 
+            .input('CategoriaId', sql.Int, catId) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
             .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
             .input('PersonalizarCosto', sql.Bit, personalizarCosto) 
@@ -171,19 +186,21 @@ app.put('/api/inventario/:id', async (req, res) => {
 
         let personalizarPrecio = (prenda.preciosTallas && Object.keys(prenda.preciosTallas).length > 0) ? 1 : 0;
         let personalizarCosto = (prenda.costosTallas && Object.keys(prenda.costosTallas).length > 0) ? 1 : 0; 
+        
+        let catId = getCategoriaId(prenda.categoria); // TRADUCIMOS DE NOMBRE A ID
 
         await pool.request()
             .input('Id', sql.VarChar, id)
             .input('Nombre', sql.VarChar, prenda.nombre)
             .input('Costo', sql.Decimal(10, 2), prenda.costo)
             .input('Precio', sql.Decimal(10, 2), prenda.precio)
-            .input('CategoriaId', sql.Int, 1) 
+            .input('CategoriaId', sql.Int, catId) 
             .input('Mostrar', sql.Bit, prenda.mostrarEnCatalogo ? 1 : 0)
             .input('PersonalizarPrecio', sql.Bit, personalizarPrecio) 
             .input('PersonalizarCosto', sql.Bit, personalizarCosto) 
             .query(`
                 UPDATE Prendas 
-                SET Nombre = @Nombre, Costo = @Costo, Precio = @Precio, MostrarEnCatalogo = @Mostrar, 
+                SET Nombre = @Nombre, Costo = @Costo, Precio = @Precio, CategoriaId = @CategoriaId, MostrarEnCatalogo = @Mostrar, 
                     PersonalizarPrecioPorTalla = @PersonalizarPrecio, PersonalizarCostoPorTalla = @PersonalizarCosto
                 WHERE Id = @Id
             `);
@@ -407,10 +424,12 @@ app.get('/api/inventario/exportar', async (req, res) => {
 
                     totalInvertido += invertidoFila;
                     totalVenta += ventaFila;
+                    
+                    let nombreCategoria = getCategoriaNombre(prenda.CategoriaId); // TRADUCTOR APLICADO AQUÍ
 
                     filasHTML += `
                         <tr>
-                            <td><strong>${prenda.Nombre}</strong><br><span style="font-size: 10px; color: #666;">${prenda.CategoriaId === 1 ? 'Vestidos' : 'General'}</span></td>
+                            <td><strong>${prenda.Nombre}</strong><br><span style="font-size: 10px; color: #666;">${nombreCategoria}</span></td>
                             <td style="text-align: center;">${t.Talla}</td>
                             <td style="text-align: center;">${t.Cantidad}</td>
                             <td style="text-align: right;">C$ ${costoReal.toFixed(2)}</td>
